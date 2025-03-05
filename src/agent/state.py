@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import List, TypedDict
+
+from langchain_core.documents import Document
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class State:
+class RankedDocument(BaseModel):
+    """A ranked document."""
+
+    document: str = Field(description="The document content")
+    summary: str = Field(description="A summary of the document")
+    score: int = Field(description="The score of the document between 0 and 100")
+
+
+class RerankingState(BaseModel):
+    """State for the reranking."""
+
+    reranked_context: List[RankedDocument] = Field(description="The reranked context")
+
+
+class State(TypedDict):
     """Defines the input state for the agent, representing a narrower interface to the outside world.
 
     This class is used to define the initial state and structure of incoming data.
@@ -14,4 +30,7 @@ class State:
     for more information.
     """
 
-    changeme: str = "example"
+    question: str
+    context: List[Document]
+    reranked_context: List[RankedDocument]
+    answer: str

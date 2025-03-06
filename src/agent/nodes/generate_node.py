@@ -17,6 +17,7 @@ You always respond in french.
 Before answering, analyse each document in the context and identify  if it contains the answer to the question.
 Assign a score between 0 and 100 to each document based on the relevance of the document to the question and then use this information to ignore documents that are not relevant.
 Also, make sure to list the most relevant documents first and then answer the question based on the most relevant documents only.
+Only output the answer, no other text.
 
 Question: {question} 
 Context: {context} 

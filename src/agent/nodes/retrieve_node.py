@@ -15,4 +15,5 @@ class RetrieveNode:
 
     def __call__(self, state: State) -> State:
         """Retrieve the documents."""
-        return {"context": self.vector_store.similarity_search(state["question"], k=15)}
+        search_results = self.vector_store.similarity_search(state["question"], k=15)
+        return {"context": search_results}

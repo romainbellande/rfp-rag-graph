@@ -21,10 +21,11 @@ aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL"))
 
 # create our vector store with hybrid indexing enabled
 # batch_size controls how many nodes are encoded with sparse vectors at once
-collection_name = "test"
+
 Settings.embed_model = MistralAIEmbedding(
     model="mistral-embed", api_key=os.getenv("MISTRAL_API_KEY")
 )
+
 Settings.llm = MistralAI(
     api_key=os.getenv("MISTRAL_API_KEY"), model="ministral-8b-latest"
 )
@@ -34,15 +35,14 @@ RFP_PATH = os.getcwd() + "/data/rfp.pdf"
 
 indexer = DocumentIndexer(
     pdf_path=RFP_PATH,
-    collection_name=collection_name,
-    recreate_collection=False,
+    collection_name="lindex",
+    recreate_collection=True,
 )
 
 
 # Initialize the indexer asynchronously
 async def init_indexer():
     """Initialize the indexer asynchronously."""
-    await indexer.ensure_collection()
     await indexer.init()
 
 

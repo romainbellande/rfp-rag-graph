@@ -7,11 +7,10 @@ from typing import List
 
 from llama_index.core import Document, Settings, StorageContext, VectorStoreIndex
 from llama_index.core.extractors import (
-    QuestionsAnsweredExtractor,
     TitleExtractor,
 )
 from llama_index.core.ingestion import IngestionCache, IngestionPipeline
-from llama_index.core.node_parser import SemanticSplitterNodeParser
+from llama_index.core.node_parser import TokenTextSplitter
 from llama_index.core.tools import QueryEngineTool, ToolMetadata
 from llama_index.embeddings.mistralai import MistralAIEmbedding
 from llama_index.llms.mistralai import MistralAI
@@ -26,8 +25,6 @@ client = QdrantClient(url=os.getenv("QDRANT_URL"))
 aclient = AsyncQdrantClient(url=os.getenv("QDRANT_URL"))
 # create our vector store with hybrid indexing enabled
 # batch_size controls how many nodes are encoded with sparse vectors at once
-collection_name = "test"
-
 llmsherpa_api_url = "https://readers.llmsherpa.com/api/document/developer/parseDocument?renderFormat=all"
 
 Settings.embed_model = MistralAIEmbedding(
@@ -38,18 +35,17 @@ Settings.llm = MistralAI(
     api_key=os.getenv("MISTRAL_API_KEY"),
     model="ministral-8b-latest",
     temperature=0,
-    max_retries=2,
+    max_retries=10,
 )
 
 
 transformations = [
-    SemanticSplitterNodeParser(
-        embed_model=Settings.embed_model,
-        include_metadata=True,
-        include_prev_next_rel=True,
+    TokenTextSplitter(
+        chunk_size=1024,
+        chunk_overlap=20,
     ),
     TitleExtractor(),
-    QuestionsAnsweredExtractor(questions=3),
+    # QuestionsAnsweredExtractor(questions=3),
 ]
 
 
@@ -78,23 +74,31 @@ class DocumentIndexer:
     async def ensure_collection(self, recreate=False):
         """Ensure the collection exists."""
         logging.info(f"Ensuring collection {self.collection_name} exists")
+
+        vectors_config = {
+            "text-dense": VectorParams(size=1024, distance=Distance.COSINE),
+        }
+
+        sparse_vectors_config = {
+            "text-sparse": SparseVectorParams(),
+        }
+
         if recreate:
             logging.info(f"Recreating collection {self.collection_name}")
             await self.aclient.recreate_collection(
                 collection_name=self.collection_name,
-                vectors_config={
-                    "text": VectorParams(size=1024, distance=Distance.COSINE),
-                    "image": VectorParams(size=1024, distance=Distance.DOT),
-                },
-                sparse_vectors_config={
-                    "text-sparse": SparseVectorParams(),
-                },
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_vectors_config,
             )
         if not await self.aclient.collection_exists(
             collection_name=self.collection_name
         ):
             logging.info(f"Creating collection {self.collection_name}")
-            await self.aclient.create_collection(collection_name=self.collection_name)
+            await self.aclient.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_vectors_config,
+            )
 
     async def load_documents(self):
         """Load the documents from the PDF."""
@@ -104,6 +108,14 @@ class DocumentIndexer:
         logging.info(f"Loaded {len(documents)} documents")
         return documents
 
+    def embed_node(self, node):
+        """Embed a single node using the embedding model."""
+        if not node.embedding:
+            content = node.get_content(metadata_mode="all")
+            embedding = Settings.embed_model.get_text_embedding(content)
+            node.embedding = embedding
+        return node
+
     async def ingest_documents(self, documents: List[Document]):
         """Ingest the documents into the vector store."""
         logging.info(f"Ingesting {len(documents)} documents into the vector store")
@@ -112,7 +124,21 @@ class DocumentIndexer:
             in_place=True,
             show_progress=True,
         )
-        await self.vector_store.add(nodes)
+
+        # # Embed nodes before adding to vector store
+        # logging.info("Embedding nodes...")
+        # embed_model = Settings.embed_model
+
+        # # Process embeddings sequentially to avoid rate limits
+        processed_nodes = []
+
+        for node in nodes:
+            processed_node = self.embed_node(node)
+            processed_nodes.append(processed_node)
+
+        nodes = processed_nodes
+
+        self.vector_store.add(nodes)
         logging.info(f"Added {len(nodes)} nodes to the vector store")
 
     def create_tool(self, name: str, description: str):
@@ -129,11 +155,12 @@ class DocumentIndexer:
     async def init(self):
         """Initialize the vector store with documents from the PDF."""
         # Load the PDF file if test collection is empty
+        await self.ensure_collection(self.recreate_collection)
+
         self.vector_store = QdrantVectorStore(
-            collection_name=collection_name,
+            collection_name=self.collection_name,
             client=self.client,
             aclient=self.aclient,
-            enable_hybrid=True,
             batch_size=20,
         )
 

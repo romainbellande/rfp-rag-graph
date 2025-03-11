@@ -3,8 +3,8 @@
 This agent returns a predefined response without using an actual LLM.
 """
 
+import logging
 import os
-import pprint
 
 from langchain_community.document_loaders import PDFPlumberLoader
 from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
@@ -30,36 +30,39 @@ client = QdrantClient(url=os.getenv("QDRANT_URL"))
 
 RFP_PATH = os.getcwd() + "/data/rfp.pdf"
 
+collection_name = "test"
+
 
 def setup_vector_store(recreate=False):
     """Set up the vector store."""
     vectors_config = VectorParams(size=1024, distance=Distance.COSINE)
     if recreate:
         client.recreate_collection(
-            collection_name="test",
+            collection_name=collection_name,
             vectors_config=vectors_config,
         )
-    if not client.collection_exists(collection_name="test"):
-        pprint.pprint("Creating collection")
+    if not client.collection_exists(collection_name=collection_name):
+        logging.info("Creating collection")
         client.create_collection(
-            collection_name="test",
+            collection_name=collection_name,
             vectors_config=vectors_config,
         )
     else:
-        pprint.pprint("Collection already exists")
+        logging.info("Collection already exists")
 
 
-setup_vector_store()
+setup_vector_store(True)
 
 vector_store = QdrantVectorStore(
     client=client,
-    collection_name="test",
+    collection_name=collection_name,
     embedding=embeddings,
 )
 
 
 def load_pdf():
     """Load the PDF file."""
+    logging.info("Loading PDF")
     loader = PDFPlumberLoader(RFP_PATH)
     docs = loader.load()
 
@@ -68,6 +71,7 @@ def load_pdf():
 
 def split_text(docs):
     """Split the text into chunks."""
+    logging.info("Splitting text")
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
@@ -79,14 +83,16 @@ def split_text(docs):
 
 def index_docs(docs):
     """Index the documents."""
+    logging.info("Indexing documents")
     vector_store.add_documents(docs)
 
 
 def initial_setup():
     """Initialize the vector store with documents from the PDF."""
     # Load the PDF file if test collection is empty
-    nb_docs = client.count(collection_name="test").count
-    pprint.pprint(nb_docs)
+    logging.info("Checking if collection is empty")
+    nb_docs = client.count(collection_name=collection_name).count
+    logging.info(f"Number of documents in collection: {nb_docs}")
     if nb_docs == 0:
         docs = load_pdf()
 
